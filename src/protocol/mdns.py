@@ -202,163 +202,171 @@ class mDNSParser:
         return txt_data
 
     def parse(self, data, addr) -> dict:
-        header = {}
-        body = {}
+        try:
+            header = {}
+            body = {}
 
-        header.setdefault(PK_TRANSACTION_ID[0], hexof(data[:2]))
-        # The following values indicate how much data is defined
-        # in every category. 
-        questions, rr_awnser, rr_authority, rr_additional = struct.unpack('!H H H H', data[4:12])
-    
-        header.setdefault(PK_FLAGS_RCODE[0], hexof(data[2:4]))
-        header.setdefault(PK_QUERIES[0], questions)
-        header.setdefault(PK_ANSWERS[0], rr_awnser)
-        header.setdefault(PK_AUTH_RR[0], rr_authority)
-        header.setdefault(PK_ADD_RR[0], rr_additional)
-
-        data = data[MDNS_HEADER_LENGTH:]
-        body.setdefault(QUERIES, [])
-        for i in range(questions):
-            # In a Query-section there are some additional fields that
-            # contain some data. The Domain-name has a variable length
-            # so we have to use the '__resolvedn__'-method. After that
-            # a response type is specified (see values at start of code).
-            # The next field contains a flag that indicates the method 
-            # of the qustion. At last, there is raw data displayed if 
-            # mapped.
-            name, index = __resolve__(data=data)
-            type_ = __sum__(struct.unpack('!H', data[index: index + 2]))
-            qu = hexof(data[index+2:index+4])
-            data = data[index+4:]
-
-            body[QUERIES].append(
-                {QRY_NAME[0]: name,QRY_TYPE[0]: type_, QRY_QU[0]: qu, QRY_DATA[0]: data})
+            header.setdefault(PK_TRANSACTION_ID[0], hexof(data[:2]))
+            # The following values indicate how much data is defined
+            # in every category. 
+            questions, rr_awnser, rr_authority, rr_additional = struct.unpack('!H H H H', data[4:12])
         
-        body.setdefault(ANSWERS, [])
-        for i in range(rr_awnser):
-            rsp_name, rsp_type, cflush, ttl, length, i = self.mdns_frame(data)
+            header.setdefault(PK_FLAGS_RCODE[0], hexof(data[2:4]))
+            header.setdefault(PK_QUERIES[0], questions)
+            header.setdefault(PK_ANSWERS[0], rr_awnser)
+            header.setdefault(PK_AUTH_RR[0], rr_authority)
+            header.setdefault(PK_ADD_RR[0], rr_additional)
 
-            info = {AS_NAME[0]: rsp_name, AS_TYPE[0]: rsp_type, AS_CACHE_FLUSH[0]: cflush,
-            AS_TTL[0]: ttl, AS_DATA_LENGTH[0]: length}
-            # The different response types contain different fields so
-            # every type needs an implementation:
-            # the domain name pointer just contains the domain name
-            if rsp_type == TYPE_PTR:
-                d_name, _q = __resolve__(data=data[i:i+length])
-                info.setdefault(PTR_DOMAIN_NAME[0], d_name)
-                i += length
-            # the server selection contains a target, priority, 
-            # weight and port
-            elif rsp_type == TYPE_SRV:
-                priority, weight, port = struct.unpack('!H H H', data[i:i+6])
-                i += 6
-                target, _q = __resolve__(data=data[i:i + (length - 6)])
-                info.setdefault(SRV_PRIORITY[0], priority)
-                info.setdefault(SRV_WEIGHT[0], weight)
-                info.setdefault(SRV_TARGET[0], target)
-                info.setdefault(SRV_PORT[0], port)
-                i += (length - 6)
-            # this message usually just contains the host address
-            elif rsp_type == TYPE_A:
-                x = data[i:i+4]
-                address = '.'.join([str(y) for y in struct.unpack('!B B B B', x)])
-                info.setdefault(A_ADDRESS[0], address)
-                i += length
-            # TODO parse ipv6
-            elif rsp_type == TYPE_AAAA:
-                i += length
-                info.setdefault(AAAA_ADRESS[0], 'ffff::ff')
-                pass
-            elif rsp_type == TYPE_TXT:
-                x = data[i:length]
-                txt_data = self.convert_text(i=0, data=x)
-                i += length
-                info.setdefault(TXT_DATA[0], txt_data)
+            data = data[MDNS_HEADER_LENGTH:]
+            body.setdefault(QUERIES, [])
+            for i in range(questions):
+                # In a Query-section there are some additional fields that
+                # contain some data. The Domain-name has a variable length
+                # so we have to use the '__resolvedn__'-method. After that
+                # a response type is specified (see values at start of code).
+                # The next field contains a flag that indicates the method 
+                # of the qustion. At last, there is raw data displayed if 
+                # mapped.
+                name, index = __resolve__(data=data)
+                type_ = __sum__(struct.unpack('!H', data[index: index + 2]))
+                qu = hexof(data[index+2:index+4])
+                data = data[index+4:]
 
-            body[ANSWERS].append(info)
-            # Don't forget to slice the data (current index 'i' important)
-            data = data[i:]
+                body[QUERIES].append(
+                    {QRY_NAME[0]: name,QRY_TYPE[0]: type_, QRY_QU[0]: qu, QRY_DATA[0]: data})
+            
+            body.setdefault(ANSWERS, [])
+            for i in range(rr_awnser):
+                rsp_name, rsp_type, cflush, ttl, length, i = self.mdns_frame(data)
 
-        # I didn't see such an auth-fragment in one of the mdns-packets
-        # its rather commonly used in DNS-packets
-        body.setdefault(AUTH, [])
-        for i in range(rr_authority):
-            _name, index = __resolve__(data=data)
-            data = data[index:]
-            _type, _class = struct.unpack('!H H', data[:4])
-            _ttl = __sum__(struct.unpack('!H H', data[4:8]))
+                info = {AS_NAME[0]: rsp_name, AS_TYPE[0]: rsp_type, AS_CACHE_FLUSH[0]: cflush,
+                AS_TTL[0]: ttl, AS_DATA_LENGTH[0]: length}
+                # The different response types contain different fields so
+                # every type needs an implementation:
+                # the domain name pointer just contains the domain name
+                if rsp_type == TYPE_PTR:
+                    d_name, _q = __resolve__(data=data[i:i+length])
+                    info.setdefault(PTR_DOMAIN_NAME[0], d_name)
+                    i += length
+                # the server selection contains a target, priority, 
+                # weight and port
+                elif rsp_type == TYPE_SRV:
+                    priority, weight, port = struct.unpack('!H H H', data[i:i+6])
+                    i += 6
+                    target, _q = __resolve__(data=data[i:i + (length - 6)])
+                    info.setdefault(SRV_PRIORITY[0], priority)
+                    info.setdefault(SRV_WEIGHT[0], weight)
+                    info.setdefault(SRV_TARGET[0], target)
+                    info.setdefault(SRV_PORT[0], port)
+                    i += (length - 6)
+                # this message usually just contains the host address
+                elif rsp_type == TYPE_A:
+                    x = data[i:i+4]
+                    address = '.'.join([str(y) for y in struct.unpack('!B B B B', x)])
+                    info.setdefault(A_ADDRESS[0], address)
+                    i += length
+                # TODO parse ipv6
+                elif rsp_type == TYPE_AAAA:
+                    i += length
+                    info.setdefault(AAAA_ADRESS[0], 'ffff::ff')
+                    pass
+                elif rsp_type == TYPE_TXT:
+                    x = data[i:length]
+                    txt_data = self.convert_text(i=0, data=x)
+                    i += length
+                    info.setdefault(TXT_DATA[0], txt_data)
 
-            length = struct.unpack('!H', data[8:10])[0]
-            x = data[10:10+length]
-            # important to set this
-            data = data[10+length:] 
+                body[ANSWERS].append(info)
+                # Don't forget to slice the data (current index 'i' important)
+                data = data[i:]
 
-        body.setdefault(RECORDS, [])
-        for i in range(rr_additional):
-            additional = {}
-            # there are two cases I saw in mDNS-packets:
-            #   1: there was a fully qualified domain name
-            #   2: the byte 0x00 indicated no name at the beginning 
-            #       (TYPE_OPT <41>)
-            if data[0] != 0x00:
-                # Name length could be different
-                _name, index = __resolve__(data)
+            # I didn't see such an auth-fragment in one of the mdns-packets
+            # its rather commonly used in DNS-packets
+            body.setdefault(AUTH, [])
+            for i in range(rr_authority):
+                _name, index = __resolve__(data=data)
                 data = data[index:]
-                # type is important but in records with defined domain 
-                # name there wasn't anything else than TYPE_NSEC
-                _type = struct.unpack('!H', data[:2])[0]
-                additional.setdefault(RC_NAME[0], _name)
-                additional.setdefault(RC_TYPE[0], _type)
+                _type, _class = struct.unpack('!H H', data[:4])
+                _ttl = __sum__(struct.unpack('!H H', data[4:8]))
 
-                if _type == TYPE_NSEC:
-                    # here we got the cache flush another time and the TTL
-                    cflush = hexof(data[2:4])
-                    _ttl = __sum__(struct.unpack('!H H', data[4:8]))
+                length = struct.unpack('!H', data[8:10])[0]
+                x = data[10:10+length]
+                # important to set this
+                data = data[10+length:] 
 
-                    # usually after the length field there is a domain name 
-                    # and a RR type 
-                    length = struct.unpack('!H', data[8:10])[0]
-                    x = data[10:10+length]
-                    data = data[10+length:]
-                    additional.setdefault(RC_CACHE_FLUSH[0], cflush)
-                    additional.setdefault(RC_TTL[0], _ttl)
-                    additional.setdefault(RC_DATA[0], hexof(x)[2:])
-            else:
-                # the name only consits of the first byte
-                _name = hex(data[0])[2:]
-                data = data[1:]
-                # then a type is defined (always TYPE_OPT)
-                _type = struct.unpack('!H', data[:2])[0]
-                _p_size = hexof(data[2:4])
-                additional.setdefault(RC_NAME[0], _name)
-                additional.setdefault(RC_TYPE[0], _type)
-                additional.setdefault(RC_PAYLOAD_SIZE[0], _p_size)
+            body.setdefault(RECORDS, [])
+            for i in range(rr_additional):
+                additional = {}
+                # there are two cases I saw in mDNS-packets:
+                #   1: there was a fully qualified domain name
+                #   2: the byte 0x00 indicated no name at the beginning 
+                #       (TYPE_OPT <41>)
+                if data[0] != 0x00:
+                    # Name length could be different
+                    _name, index = __resolve__(data)
+                    data = data[index:]
+                    # type is important but in records with defined domain 
+                    # name there wasn't anything else than TYPE_NSEC
+                    _type = struct.unpack('!H', data[:2])[0]
+                    additional.setdefault(RC_NAME[0], _name)
+                    additional.setdefault(RC_TYPE[0], _type)
 
-                if _type == TYPE_OPT: 
-                    # this type contains the üayload size, a strange rcode,
-                    # also a strange value named z and the Extended DNS version
-                    _rcode = hex(data[5])
-                    _edns = struct.unpack('!B', data[6:7])[0]
-                    _z = hexof(data[7:9])
+                    if _type == TYPE_NSEC:
+                        # here we got the cache flush another time and the TTL
+                        cflush = hexof(data[2:4])
+                        _ttl = __sum__(struct.unpack('!H H', data[4:8]))
 
-                    # last but not least the data provided as an option is given
-                    length = struct.unpack('!H', data[10:12])[0]
-                    x = data[12:12+length]
+                        # usually after the length field there is a domain name 
+                        # and a RR type 
+                        length = struct.unpack('!H', data[8:10])[0]
+                        x = data[10:10+length]
+                        data = data[10+length:]
+                        additional.setdefault(RC_CACHE_FLUSH[0], cflush)
+                        additional.setdefault(RC_TTL[0], _ttl)
+                        additional.setdefault(RC_DATA[0], hexof(x)[2:])
+                else:
+                    # the name only consits of the first byte
+                    _name = hex(data[0])[2:]
+                    data = data[1:]
+                    # then a type is defined (always TYPE_OPT)
+                    _type = struct.unpack('!H', data[:2])[0]
+                    _p_size = hexof(data[2:4])
+                    additional.setdefault(RC_NAME[0], _name)
+                    additional.setdefault(RC_TYPE[0], _type)
+                    additional.setdefault(RC_PAYLOAD_SIZE[0], _p_size)
 
-                    op_code, op_length = struct.unpack('!H H', x[:4])
-                    op_data = hexof(x[4:])[2:]
-                    data = data[12+length:]
-                    # now put everything together
-                    additional.setdefault(RC_RCODE[0], _rcode)
-                    additional.setdefault(RC_EDNS[0], _edns)
-                    additional.setdefault('Z', _z)
-                    additional.setdefault(OPTION, {RC_OPTION_CODE[0]: op_code,
-                    RC_OPTION_LENGTH[0]: op_length, RC_OPTION_DATA[0]: op_data})
-        
-        return {HEADER: header, BODY: body}
+                    if _type == TYPE_OPT: 
+                        # this type contains the üayload size, a strange rcode,
+                        # also a strange value named z and the Extended DNS version
+                        _rcode = hex(data[5])
+                        _edns = struct.unpack('!B', data[6:7])[0]
+                        _z = hexof(data[7:9])
+
+                        # last but not least the data provided as an option is given
+                        length = struct.unpack('!H', data[10:12])[0]
+                        x = data[12:12+length]
+
+                        op_code, op_length = struct.unpack('!H H', x[:4])
+                        op_data = hexof(x[4:])[2:]
+                        data = data[12+length:]
+                        # now put everything together
+                        additional.setdefault(RC_RCODE[0], _rcode)
+                        additional.setdefault(RC_EDNS[0], _edns)
+                        additional.setdefault('Z', _z)
+                        additional.setdefault(OPTION, {RC_OPTION_CODE[0]: op_code,
+                        RC_OPTION_LENGTH[0]: op_length, RC_OPTION_DATA[0]: op_data})
+            
+            return {HEADER: header, BODY: body}
+        except Exception:
+            # raisuíng an exception could be fatal while capturing
+            #raise ParsingException()
+            return {HEADER: header, BODY: body}
+
+class ParsingException(Exception):
+    pass
 
 class MulticastDNSListener:
-    def __init__(self, proto='ipv4', address=None) -> None:
+    def __init__(self, proto='ipv4', address=None, broadcast_ip=None) -> None:
         self.stopped = False
 
         if proto not in ('ipv4', 'ipv6'):
@@ -366,12 +374,12 @@ class MulticastDNSListener:
 
         if proto == 'ipv4':
             self._af_type = socket.AF_INET
-            self._broadcast_ip = IPV4_MCAST_IP
+            self._broadcast_ip = IPV4_MCAST_IP if not broadcast_ip else broadcast_ip
             self._address = (self._broadcast_ip, MDNS_PORT)
             bind_address = "0.0.0.0"
         elif proto == "ipv6":
             self._af_type = socket.AF_INET6
-            self._broadcast_ip = IPV6_MCAST_IP
+            self._broadcast_ip = IPV6_MCAST_IP if not broadcast_ip else broadcast_ip
             self._address = (self._broadcast_ip, MDNS_PORT, 0, 0)
             bind_address = "::"
 
@@ -399,13 +407,31 @@ class MulticastDNSListener:
     def bsend(self, msg) -> int:
         self.sock.sendto(msg, self._address)
 
-    def listen(self, p=on_recv):
+    def foreach(self):
         try:
             while not self.stopped:
-                data, address = self.sock.recvfrom(1024)
-                p(data, address)
+                data, address = self.sock.recvfrom(2048)
+                yield (data, address)
+        except KeyboardInterrupt or ParsingException or socket.timeout:
+            pass
         except Exception:
             self.sock.close()
             raise
         finally:
             self.sock.close()
+
+    def listen(self, p=on_recv):
+        try:
+            while not self.stopped:
+                data, address = self.sock.recvfrom(2048)
+                p(data, address)
+        except KeyboardInterrupt or ParsingException or socket.timeout:
+            pass
+        except Exception:
+            self.sock.close()
+            raise
+        finally:
+            self.sock.close()
+
+    def close(self):
+        self.sock.close()
